@@ -37,6 +37,16 @@ class Query:
         self.query += f" FROM {table}"
         return self
 
+    def in_column(self, **column):
+        # add the where clause
+        self.__where__()
+        # add the fields
+        for field, value in column.items():
+            self.query += f"{field} IN {f'"{value}"' if isinstance(value,str) else f'({value.__str__()})' if isinstance(value,self.__class__) else value} AND "
+        # remove the last 'AND'
+        self.query = self.query[:-4]
+        return self
+    
     def insert(self, table_name, **fields):
         # add the insert clause
         self.query += f"INSERT INTO {table_name}"
