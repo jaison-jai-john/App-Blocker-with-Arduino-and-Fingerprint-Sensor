@@ -83,7 +83,7 @@ class Query:
         self.__where__()
         # add the fields
         for field, value in fields.items():
-            self.query += f"{field} = {value} AND "
+            self.query += f"{field} = {f'"{value}"' if isinstance(value,str) else f'({value.__str__()})' if isinstance(value,self.__class__) else value} AND "
         # remove the last 'AND'
         self.query = self.query[:-4]
         return self
@@ -176,7 +176,6 @@ class Query:
         # add the union all clause
         self.query += f" UNION ALL {query}"
         return self
-    
     def __str__(self):
         return self.query
 
