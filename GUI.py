@@ -77,7 +77,9 @@ class GUI:
 
         # program list window
         self.program_list_window = ctk.CTkFrame(self.root, corner_radius=0)
-        self.program_list_window_top_bar = ctk.CTkFrame(self.program_list_window)
+        self.program_list_window_top_bar = ctk.CTkFrame(
+            self.program_list_window, corner_radius=0
+        )
         self.program_list_title = ctk.CTkLabel(
             self.program_list_window_top_bar, text="Programs"
         )
@@ -100,7 +102,7 @@ class GUI:
 
         # program list
         self.program_list = ctk.CTkScrollableFrame(
-            self.program_list_window, height=self.h
+            self.program_list_window, height=self.h, corner_radius=0
         )
 
         self.populate_programs_window()
@@ -114,16 +116,18 @@ class GUI:
         )
 
         # program info window
-        self.program_info = ctk.CTkFrame(self.program_window)
+        self.program_info = ctk.CTkFrame(self.program_window, corner_radius=0)
         self.program_name = ctk.CTkLabel(
             self.program_info,
             text=f"Program Name: {self.selected.name if self.selected else ''}",
         )
-        self.program_name.pack()
+        self.program_name.place(
+            relx=0.5, rely=0.5, relwidth=1, relheight=0.1, anchor=tk.CENTER
+        )
 
         # program users window
-        self.program_users_frame = ctk.CTkFrame(self.program_window)
-        top_heading = ctk.CTkFrame(self.program_users_frame)
+        self.program_users_frame = ctk.CTkFrame(self.program_window, corner_radius=0)
+        top_heading = ctk.CTkFrame(self.program_users_frame, corner_radius=0)
         top_heading.place(relx=0, rely=0, relwidth=1, relheight=0.1)
         ctk.CTkLabel(top_heading, text="Users").place(
             relx=0, rely=0, relwidth=0.8, relheight=1
@@ -135,7 +139,9 @@ class GUI:
         self.add_user_top_button.place(
             relx=0.8, rely=0.5, relwidth=0.2, anchor=tk.CENTER
         )
-        self.program_users = ctk.CTkScrollableFrame(self.program_users_frame)
+        self.program_users = ctk.CTkScrollableFrame(
+            self.program_users_frame, corner_radius=0
+        )
 
         # add user button
         self.add_user_button = ctk.CTkButton(
@@ -177,7 +183,7 @@ class GUI:
         self.clear_children(self.program_list)
         # populate the program list
         for program in programs:
-            container = ctk.CTkFrame(self.program_list)
+            container = ctk.CTkFrame(self.program_list, corner_radius=0)
             # place container with fill x and auto y
             container.pack(fill="x")
             # buttons with the same height as the container
@@ -186,6 +192,8 @@ class GUI:
                 container,
                 text=program.name,
                 command=lambda program=program: self.select_program(program),
+                fg_color="transparent",
+                hover=False,
             ).pack(side="left", fill="x", expand=True)
             # delete button 20% width
             ctk.CTkButton(
@@ -226,7 +234,10 @@ class GUI:
                 .select()
                 .from_table("users")
                 .equals(
-                    id=f'({self.db.query().select(["uid"]).from_table("access").equals(pid=self.selected.id).__str__()})'
+                    id=self.db.query()
+                    .select(["uid"])
+                    .from_table("access")
+                    .equals(pid=self.selected.id)
                 )
                 .execute()
             )
@@ -242,7 +253,7 @@ class GUI:
             self.add_user_button.place_forget()
 
             for user in users:
-                userFrame = ctk.CTkFrame(self.program_users)
+                userFrame = ctk.CTkFrame(self.program_users, corner_radius=0)
                 ctk.CTkLabel(userFrame, text=user.username).place(
                     relx=0, rely=0, relwidth=0.8
                 )
@@ -289,7 +300,7 @@ class GUI:
 
 
 class Add_User_Window:
-    def __init__(self, parent, callback=None):
+    def __init__(self, parent: GUI, callback=None):
         self.parent = parent
         self.window = ctk.CTkToplevel(self.parent.root)
         self.window.attributes("-topmost", True)
@@ -316,14 +327,70 @@ class Add_User_Window:
 
         self.add_user_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
+        self.message_label = ctk.CTkLabel(self.window, text="")
+        self.message_label.place(relx=0.5, rely=0.6, anchor=tk.CENTER)
+
         self.run()
 
     def add_user(self):
+        if self.user_name_entry.get() == "" or self.user_name_entry.get() == None:
+            self.message_label.configure(text="User name is required")
+            return
+        if self.fingerprint_entry.get() == "" or self.fingerprint_entry.get() == None:
+            self.message_label.configure(text="Fingerprint ID is required")
+            return
+        if not self.fingerprint_entry.get().isdigit():
+            self.message_label.configure(text="Fingerprint ID must be a number")
+            return
+        if (
+            int(self.fingerprint_entry.get()) < 1
+            or int(self.fingerprint_entry.get()) > 127
+        ):
+            self.message_label.configure(
+                text="Fingerprint ID must be between 1 and 127"
+            )
+            return
+        if (
+            self.parent.db.query()
+            .select()
+            .from_table("users")
+            .equals(username=self.user_name_entry.get())
+            .execute()
+        ):
+            self.message_label.configure(text="User name already exists")
+            return
+        if (
+            self.parent.db.query()
+            .select()
+            .from_table("users")
+            .equals(fingerprintID=self.fingerprint_entry.get())
+            .execute()
+        ):
+            self.message_label.configure(text="Fingerprint ID already exists")
+            return
+
+        self.parent.arduino.wait_for(["Enter choice: "])
+        self.parent.arduino.write("1")
+        self.parent.arduino.wait_for(["Enter finger print id from 1 to 127"])
+        self.parent.arduino.write(self.fingerprint_entry.get())
+        while True:
+            read = self.parent.arduino.wait_for(
+                ["place finger", "remove finger", "stored!"]
+            )
+            if "stored!" in read:
+                break
+            if "place finger" in read:
+                self.message_label.configure(text="Place finger")
+            if "remove finger" in read:
+                self.message_label.configure(text="Remove finger")
+
         self.parent.db.query().insert(
             "users",
             username=self.user_name_entry.get(),
             fingerprintID=self.fingerprint_entry.get(),
-        ).values([(self.user_name_entry.get(), self.fingerprint_entry.get())]).execute()
+        ).values(
+            [(self.user_name_entry.get(), int(self.fingerprint_entry.get()))]
+        ).execute()
         if self.callback != None:
             self.callback()
         self.window.destroy()
@@ -343,19 +410,26 @@ class Add_user_to_program_window:
 
         self.program = program
 
+        # user list window
         self.selected = None
-        self.user_list_window = ctk.CTkFrame(self.window)
-        self.user_list_title = ctk.CTkLabel(self.user_list_window, text="Users")
-        self.user_list = ctk.CTkScrollableFrame(self.user_list_window)
+        self.user_list_window = ctk.CTkFrame(self.window, corner_radius=0)
+        user_list_window_top_bar = ctk.CTkFrame(self.user_list_window, corner_radius=0)
+        user_list_title = ctk.CTkLabel(user_list_window_top_bar, text="Users")
+        add_user_button = ctk.CTkButton(
+            user_list_window_top_bar, text="Add User", command=self.add_new_user
+        )
+        self.user_list = ctk.CTkScrollableFrame(self.user_list_window, corner_radius=0)
 
         self.add_new_user_button = ctk.CTkButton(
             self.user_list_window, text="Add new user", command=self.add_new_user
         )
-
-        self.user_list_title.place(relx=0, rely=0, relwidth=1, relheight=0.1)
+        user_list_window_top_bar.place(relx=0, rely=0, relwidth=1, relheight=0.1)
+        user_list_title.place(relx=0, rely=0, relwidth=0.8, relheight=1)
+        add_user_button.place(relx=0.8, rely=0.5, relwidth=0.2, anchor=tk.CENTER)
         self.user_list.place(relx=0, rely=0.1, relwidth=1, relheight=0.9)
 
-        self.user_window = ctk.CTkFrame(self.window)
+        # user window
+        self.user_window = ctk.CTkFrame(self.window, corner_radius=0)
         self.user_name = ctk.CTkLabel(
             self.user_window,
             text=f"User Name: {self.selected.username if self.selected else ''}",
@@ -363,6 +437,10 @@ class Add_user_to_program_window:
         self.select_user_button = ctk.CTkButton(
             self.user_window,
             text="Select User",
+        )
+        self.delete_user_button = ctk.CTkButton(
+            self.user_window,
+            text="Delete User",
         )
 
         # if not selected
@@ -396,7 +474,9 @@ class Add_user_to_program_window:
             ctk.CTkButton(
                 self.user_list,
                 text=user.username,
-                command=lambda user=user: self.add_user_to_program(user),
+                command=lambda user=user: self.select_user(user),
+                fg_color="transparent",
+                hover=False,
             ).pack(side="top", fill="x")
 
     def clear_children(self, parent: ctk.CTkBaseClass):
@@ -413,17 +493,38 @@ class Add_user_to_program_window:
             self.user_name.configure(
                 text=f"User Name: {self.selected.username}",
             )
-
             self.select_user_button.configure(
-                command=lambda: self.add_user_to_program(self.selected)
+                command=lambda user=self.selected: self.add_user_to_program(user)
             )
-
-            self.select_user_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-
-            self.user_name.pack()
+            self.delete_user_button.configure(
+                command=lambda user=self.selected: self.delete_user(user)
+            )
+            self.user_name.place(relx=0, rely=0, relwidth=1, relheight=0.1)
+            self.select_user_button.place(relx=0, rely=0.1, relwidth=0.5, relheight=0.1)
+            self.delete_user_button.place(
+                relx=0.5, rely=0.1, relwidth=0.5, relheight=0.1
+            )
         else:
             self.user_name.place_forget()
+            self.select_user_button.place_forget()
+            self.delete_user_button.place_forget()
             self.user_window_select_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+    def delete_user(self, user):
+        self.parent.arduino.wait_for(["Enter choice: "])
+        self.parent.arduino.write("2")
+        self.parent.arduino.wait_for(
+            ["Enter Id of the fingerprint that is to be deleted: "]
+        )
+        self.parent.arduino.write(str(user.fingerprintID))
+        self.parent.arduino.wait_for(["Deleted!"])
+        self.parent.db.query().delete("access").equals(
+            uid=user.id, pid=self.program.id
+        ).execute()
+        self.parent.db.query().delete("users").equals(id=user.id).execute()
+        self.populate_user_list()
+        self.parent.populate_program_window()
+        self.select_user(None)
 
     def add_user_to_program(self, user):
         user_exists = (
