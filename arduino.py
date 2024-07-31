@@ -12,13 +12,14 @@ class Arduino:
         self.ser.write(data.encode())
 
     def read(self):
-        return self.ser.readline().decode()
+        return self.ser.readline().decode().lower()
 
     def wait_for(self, data=[]):
-        while True:
+        while True and data != []:
             read = self.read()
-            if any([r in read for r in data]):
-                return read
+            for d in data:
+                if d.lower() in read:
+                    return read
 
     def close(self):
         self.ser.close()
