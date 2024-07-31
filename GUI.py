@@ -233,7 +233,7 @@ class GUI:
                 self.db.query()
                 .select()
                 .from_table("users")
-                .equals(
+                .in_column(
                     id=self.db.query()
                     .select(["uid"])
                     .from_table("access")
@@ -254,15 +254,19 @@ class GUI:
 
             for user in users:
                 userFrame = ctk.CTkFrame(self.program_users, corner_radius=0)
-                ctk.CTkLabel(userFrame, text=user.username).place(
-                    relx=0, rely=0, relwidth=0.8
-                )
+                userFrame.pack(fill="x")
+                ctk.CTkButton(
+                    userFrame,
+                    text=user.username,
+                    command=lambda user=user: self.delete_user_from_program(user),
+                    fg_color="transparent",
+                    hover=False,
+                ).pack(side="left", fill="x", expand=True)
                 ctk.CTkButton(
                     userFrame,
                     text="Delete",
                     command=lambda user=user: self.delete_user_from_program(user),
-                ).place(relx=0.8, rely=0.075, relwidth=0.2, anchor=tk.CENTER)
-                userFrame.pack(fill="x")
+                ).pack(side="right", fill="x", expand=True)
         else:
             self.program_info.place_forget()
             self.program_users_frame.place_forget()
@@ -457,6 +461,7 @@ class Add_user_to_program_window:
         self.run()
 
     def add_new_user(self):
+        self.window.attributes("-topmost", False)
         Add_User_Window(self.parent, self.populate_user_list)
 
     def populate_user_list(self):
@@ -542,6 +547,68 @@ class Add_user_to_program_window:
         ).values([(user.id, self.program.id)]).execute()
         if self.callback != None:
             self.callback()
+        self.window.destroy()
+
+    def run(self):
+        self.window.mainloop()
+
+
+class Add_program:
+    def __init__(self, parent: GUI):
+        self.parent = parent
+        self.window = ctk.CTkToplevel(self.parent.root)
+        self.window.attributes("-topmost", True)
+        self.window.title("Add Program")
+        self.window.geometry(f"{self.parent.w//2}x{self.parent.h//2}")
+
+        self.program_name_label = ctk.CTkLabel(self.window, text="Program Name")
+        self.program_name_entry = ctk.CTkEntry(self.window)
+
+        self.program_description_label = ctk.CTkLabel(
+            self.window, text="Program Description"
+        )
+        self.program_description_entry = ctk.CTkEntry(self.window)
+
+        self.add_program_button = ctk.CTkButton(
+            self.window, text="Add Program", command=self.add_program
+        )
+
+        self.program_name_label.place(relx=0, rely=0, relwidth=1, relheight=0.1)
+        self.program_name_entry.place(relx=0, rely=0.1, relwidth=1, relheight=0.1)
+
+        self.program_description_label.place(
+            relx=0, rely=0.2, relwidth=1, relheight=0.1
+        )
+        self.program_description_entry.place(
+            relx=0, rely=0.3, relwidth=1, relheight=0.1
+        )
+
+        self.add_program_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        self.message_label = ctk.CTkLabel(self.window, text="")
+        self.message_label.place(relx=0.5, rely=0.6, anchor=tk.CENTER)
+
+        self.run()
+
+    def add_program(self):
+        if self.program_name_entry.get() == "" or self.program_name_entry.get() == None:
+            self.message_label.configure(text="Program name is required")
+            return
+        if (
+            self.program_description_entry.get() == ""
+            or self.program_description_entry.get() == None
+        ):
+            self.message_label.configure(text="Program description is required")
+            return
+
+        self.parent.db.query().insert(
+            "programs",
+            name=self.program_name_entry.get(),
+            description=self.program_description_entry.get(),
+        ).values(
+            [(self.program_name_entry.get(), self.program_description_entry.get())]
+        ).execute()
+        self.parent.populate_programs_window()
         self.window.destroy()
 
     def run(self):
