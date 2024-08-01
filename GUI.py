@@ -1,12 +1,32 @@
 # 3rd part modules
+import threading
+
+# built in modules
+import time
 import tkinter as tk
 
 import customtkinter as ctk
+import pyautogui
 
 from arduino import Arduino
 
 # Local modules
 from db import DB
+from variables import checked, kill, reading
+
+went_through = []
+kill_timer = False
+
+
+def timeout(sec, callback):
+    global kill_timer
+    kill_timer = False
+    for i in range(sec)[::-1]:
+        if kill_timer:
+            return
+        print(i)
+        time.sleep(1)
+    callback()
 
 
 class GUI:
@@ -74,6 +94,7 @@ class GUI:
         self.root.geometry("1920x1080")
         self.w = 1920
         self.h = 1080
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # program list window
         self.program_list_window = ctk.CTkFrame(self.root, corner_radius=0)
@@ -156,6 +177,8 @@ class GUI:
         self.program_list_window.place(relx=0, rely=0, relwidth=0.4, relheight=1)
         self.program_window.place(relx=0.4, rely=0, relwidth=0.6, relheight=1)
 
+        self.run()
+
     def run(self):
         self.root.mainloop()
 
@@ -164,6 +187,8 @@ class GUI:
             child.destroy()
 
     def populate_programs_window(self):
+        global kill
+        kill = True
         # get all the programs
         programs = self.db.query().select().from_table("programs").execute()
 
@@ -202,6 +227,11 @@ class GUI:
                 command=lambda program=program: self.delete_program(program),
             ).pack(side="right", fill="x", expand=True)
             # place the buttons
+
+        self.watcher = window_watcher(
+            self.db.query().select().from_table("programs").execute(),
+            callbacks={Verify_Access: {"parent": self, "target": None}},
+        )
 
     def select_program(self, program):
         self.selected = program
@@ -292,15 +322,16 @@ class GUI:
         self.populate_programs_window()
 
     def add_program(self):
-        self.db.query().insert("programs", name="", description="").values(
-            [["test", "this is a test program"]]
-        ).execute()
-        if len(self.program_list.winfo_children()) > 0:
-            self.clear_children(self.program_list)
-        self.populate_programs_window()
+        Add_program(self)
 
     def add_user(self, program):
         Add_user_to_program_window(self, program, self.populate_program_window)
+
+    def on_close(self):
+        global kill
+        kill = True
+        self.root.destroy()
+        exit()
 
 
 class Add_User_Window:
@@ -373,6 +404,7 @@ class Add_User_Window:
             self.message_label.configure(text="Fingerprint ID already exists")
             return
 
+        self.parent.arduino.start_reading()
         self.parent.arduino.wait_for(["Enter choice: "])
         self.parent.arduino.write("1")
         self.parent.arduino.wait_for(["Enter finger print id from 1 to 127"])
@@ -561,58 +593,254 @@ class Add_program:
         self.window.title("Add Program")
         self.window.geometry(f"{self.parent.w//2}x{self.parent.h//2}")
 
-        self.program_name_label = ctk.CTkLabel(self.window, text="Program Name")
-        self.program_name_entry = ctk.CTkEntry(self.window)
-
-        self.program_description_label = ctk.CTkLabel(
-            self.window, text="Program Description"
+        # program list window
+        self.program_list_window = ctk.CTkFrame(self.window, corner_radius=0)
+        self.program_list_title = ctk.CTkLabel(
+            self.program_list_window, text="programs"
         )
-        self.program_description_entry = ctk.CTkEntry(self.window)
-
-        self.add_program_button = ctk.CTkButton(
-            self.window, text="Add Program", command=self.add_program
+        self.program_list = ctk.CTkScrollableFrame(
+            self.program_list_window, corner_radius=0
         )
 
-        self.program_name_label.place(relx=0, rely=0, relwidth=1, relheight=0.1)
-        self.program_name_entry.place(relx=0, rely=0.1, relwidth=1, relheight=0.1)
+        self.program_list_title.place(relx=0, rely=0, relwidth=1, relheight=0.1)
+        self.program_list.place(relx=0, rely=0.1, relwidth=1, relheight=0.9)
 
-        self.program_description_label.place(
-            relx=0, rely=0.2, relwidth=1, relheight=0.1
-        )
-        self.program_description_entry.place(
-            relx=0, rely=0.3, relwidth=1, relheight=0.1
-        )
+        self.program_list_window.place(relx=0, rely=0, relwidth=0.5, relheight=1)
 
-        self.add_program_button.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-
-        self.message_label = ctk.CTkLabel(self.window, text="")
-        self.message_label.place(relx=0.5, rely=0.6, anchor=tk.CENTER)
+        self.populate_program_list()
+        # program window
 
         self.run()
 
-    def add_program(self):
-        if self.program_name_entry.get() == "" or self.program_name_entry.get() == None:
-            self.message_label.configure(text="Program name is required")
-            return
-        if (
-            self.program_description_entry.get() == ""
-            or self.program_description_entry.get() == None
-        ):
-            self.message_label.configure(text="Program description is required")
+    def populate_program_list(self):
+        active_windows = pyautogui.getAllWindows()
+        for window in active_windows:
+            if window.title:
+                ctk.CTkButton(
+                    self.program_list,
+                    text=window.title,
+                    command=lambda program=window: self.add_program(program),
+                ).pack(side="top", fill="x")
+
+    def add_program(self, program):
+        program_exist = (
+            self.parent.db.query()
+            .select()
+            .from_table("programs")
+            .equals(name=program.title)
+            .execute()
+        )
+        if program_exist:
+            print("already on list")
             return
 
-        self.parent.db.query().insert(
-            "programs",
-            name=self.program_name_entry.get(),
-            description=self.program_description_entry.get(),
-        ).values(
-            [(self.program_name_entry.get(), self.program_description_entry.get())]
+        self.parent.db.query().insert("programs", name="", description="").values(
+            [(program.title, "")]
         ).execute()
+
         self.parent.populate_programs_window()
         self.window.destroy()
 
     def run(self):
         self.window.mainloop()
+
+
+class Verify_Access:
+    def __init__(self, parent: GUI, target):
+        print("new verification")
+        if target != None:
+            self.targets = target
+            self.target = target[0]
+            self.parent = parent
+            self.window = ctk.CTkToplevel(self.parent.root)  # set focus to self.window
+            # self.window.attributes("-topmost", True)
+
+            # on window close call self.failed
+            self.window.protocol("WM_DELETE_WINDOW", self.failed)
+            # self.window.bind("<FocusOut>", self.failed)
+            self.window.title("Access Verification")
+            self.window.geometry(f"{parent.w//2}x{parent.h//2}")
+
+            self.status_label = ctk.CTkLabel(
+                self.window,
+                text="verifying! please place your finger on the sensor. you are given 10 seconds to verify identity",
+            )
+            self.status_label.place(
+                relx=0.5, rely=0.5, relheight=0.1, relwidth=0.3, anchor=tk.CENTER
+            )
+            self.closed = False
+
+            self.parent.arduino.start_reading()
+            if self.target_still_active():
+                threading.Thread(target=timeout(10, self.failed)).start()
+                self.verify()
+
+    def failed(self, *x):
+        if hasattr(self, "closed"):
+            if self.closed:
+                return
+        else:
+            return
+        print("FAILED")
+        print(hasattr(self, "closed"), self.closed)
+        self.closed = True
+        global kill_timer
+        kill_timer = True
+        self.parent.arduino.stop_reading()
+        if self.target_still_active():
+            for target in self.targets:
+                target.close()
+        self.status_label.place_forget()
+        self.status_label.destroy()
+        self.window.destroy()
+
+    def target_still_active(self):
+        for window in pyautogui.getAllWindows():
+            if window.title == "":
+                continue
+            if window.title == self.target.title:
+                print(window.title, self.target.title, "still active")
+                return True
+        return False
+
+    def verify(self):
+        print("VERIFY")
+        global checked
+        # fetch program
+        program = (
+            self.parent.db.query()
+            .select()
+            .from_table("programs")
+            .equals(name=self.target.title)
+            .execute()[0]
+        )
+        # fetch users list
+        users = (
+            self.parent.db.query()
+            .select()
+            .from_table("users")
+            .in_column(
+                id=self.parent.db.query()
+                .select(["uid"])
+                .from_table("access")
+                .equals(pid=program.id)
+            )
+            .execute()
+        )
+
+        if len(users) <= 0:
+            checked.append(self.target.title)
+            return
+
+        while True:
+            if hasattr(self, "closed"):
+                if self.closed:
+                    return
+            else:
+                return
+            # verify fingerprint
+            self.parent.arduino.wait_for(["Enter choice: "])
+            print("entering choice")
+            self.parent.arduino.write("3")
+            print("scan fingerprint")
+            while True:
+                read = self.parent.arduino.wait_for(["print match", "error", "a match"])
+                if "print match" in read:
+                    break
+                elif "stopped reading" == read:
+                    print("exiting with fail")
+                    self.failed()
+                    break
+                else:
+                    print(read)
+            if read == "stopped reading":
+                return
+
+            fingerprintId = int(
+                self.parent.arduino.wait_for(["found id"]).split()[-1][1::]
+            )
+            print("id found", fingerprintId)
+            confidence = self.parent.arduino.wait_for(["confidence"]).split()[-1]
+            print("confidence found")
+
+            # check if any of the users have the fingerprint
+            if any([user.fingerprintID == fingerprintId for user in users]):
+                print("found user")
+                break
+            else:
+                self.failed()
+                return
+
+        print("access granted")
+        checked.append(self.target.title)
+        self.window.destroy()
+
+
+class window_watcher:
+    def __init__(self, windows, callbacks=None, update=None):
+        global kill
+        kill = False
+        self.targets = windows
+        self.thread = threading.Thread()
+        self.callbacks = callbacks
+        self.windows = []
+        self.update = update
+
+        self.thread = threading.Thread(target=self.listen_for_update)
+        self.thread.start()
+
+    def listen_for_update(self):
+        print("listening for updates")
+        global kill
+        while True:
+            if kill:
+                print("KILLING THREAD")
+                break
+            active_windows = pyautogui.getAllWindows()
+            if self.windows != active_windows:
+                print("windows updated")
+                if self.update:
+                    for callback, args in self.update.items():
+                        callback(**args)
+                self.check_for_window()
+                self.windows = active_windows
+            global went_through
+            went_through.clear()
+
+    def check_for_window(self):
+        print("checking for window")
+        global checked
+        windows = set(pyautogui.getAllTitles())
+        print(windows)
+
+        global went_through
+        for title in windows:
+            if title == "":
+                continue
+            print("running", title)
+            targets = pyautogui.getWindowsWithTitle(title)
+            if len(targets) < 0:
+                print(targets)
+                continue
+            print(targets[0], len(targets))
+            window = targets[0]
+            for target in self.targets:
+                if window.title == target.name and window.title not in checked:
+                    try:
+                        window.activate()
+                        if not window.isActive:
+                            print("failed to activate", window.title)
+                            break
+                    except:
+                        print("failed to activate", window.title)
+                        break
+                    last_title = window.title
+                    if self.callbacks:
+                        for callback, args in self.callbacks.items():
+                            if isinstance(callback(**args), Verify_Access):
+                                callback(args["parent"], targets)
+                else:
+                    print(window.title, "not target")
 
 
 if __name__ == "__main__":
