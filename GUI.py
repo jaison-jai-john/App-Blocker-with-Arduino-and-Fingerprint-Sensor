@@ -28,27 +28,27 @@ from variables import checked, kill, reading
 went_through = []
 
 # kill timer flag. when True it kills the timeout threads active
-kill_timer = False
+kill_timer = [False]
 
 # set to True to enable logging
-logging = True
+logging = False
 
 
 # log function. prints the message if logging is enabled. for development purposes
-def log(x):
+def log(*x):
     if logging:
-        print(x)
+        print(*x)
 
 
 # timeout function. it waits for a certain amount of time and then calls the callback function
 def timeout(sec, callback):
     global kill_timer
     # reset kill timer flag
-    kill_timer = False
+    kill_timer[0] = False
     # wait for sec seconds
     for i in range(sec)[::-1]:
         # if kill timer flag is True, return
-        if kill_timer:
+        if kill_timer[0]:
             return
         log(i)
         # wait for 1 second
@@ -1104,7 +1104,10 @@ class Verify_Access:
             self.parent.arduino.start_reading()
             # start the verification
             if self.target_still_active():
-                threading.Thread(target=timeout(10, self.failed)).start()
+
+                t = threading.Thread(target=timeout, args=(10, self.failed))
+                t.start()
+                print("thread started")
                 self.verify()
 
     def failed(self, *x):
@@ -1130,7 +1133,7 @@ class Verify_Access:
         self.closed = True
         # set the kill timer flag
         global kill_timer
-        kill_timer = True
+        kill_timer[0] = True
 
         # stop reading from the arduino
         self.parent.arduino.stop_reading()
@@ -1174,7 +1177,7 @@ class Verify_Access:
         log("VERIFY")
 
         # get the checked list
-        global checked
+        global checked, kill_timer
         # fetch program
         program = (
             self.parent.db.query()
@@ -1202,6 +1205,7 @@ class Verify_Access:
             checked.append(self.target.title)
             return
 
+        self.parent.arduino.start_reading()
         # start the verification
         while True:
             # check if the window is closed
@@ -1253,6 +1257,7 @@ class Verify_Access:
         # permission is granted so add the program to checked list
         checked.append(self.target.title)
         # close the window
+        kill_timer[0] = True
         self.window.destroy()
 
 
