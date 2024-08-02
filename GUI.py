@@ -1,5 +1,7 @@
 # built in modules
 # for threading
+# for checking all the process outputs
+import subprocess
 import threading
 
 # for delaying execution
@@ -33,11 +35,32 @@ kill_timer = [False]
 # set to True to enable logging
 logging = False
 
+# set end flag
+end = False
+
 
 # log function. prints the message if logging is enabled. for development purposes
 def log(*x):
+    global logging
     if logging:
         print(*x)
+
+
+def clear_checked_if_locked():
+    global checked, end
+    process_name = "LogonUI.exe"
+    callall = "TASKLIST"
+    log("watching for lock")
+    while True:
+        if end:
+            print("killing lock watcher")
+            break
+        outputall = subprocess.check_output(callall)
+        outputstringall = str(outputall)
+        if process_name in outputstringall:
+            log("locked, clearing checked")
+            if len(checked) > 0:
+                checked.clear()
 
 
 # timeout function. it waits for a certain amount of time and then calls the callback function
@@ -225,6 +248,8 @@ class GUI:
         self.program_list_window.place(relx=0, rely=0, relwidth=0.4, relheight=1)
         self.program_window.place(relx=0.4, rely=0, relwidth=0.6, relheight=1)
 
+        # start the lock watcher
+        threading.Thread(target=clear_checked_if_locked).start()
         # call the mainloop
         self.run()
 
@@ -485,8 +510,9 @@ class GUI:
             None
         """
         # set the kill flag to True
-        global kill
+        global kill, end
         kill = True
+        end = True
         # destroy the UI
         self.root.destroy()
         # close arduino serial connection
@@ -625,6 +651,7 @@ class Add_User_Window:
             )
             # if the fingerprint is stored, break
             if "stored!" in read:
+                self.message_label.configure(text="Fingerprint stored!")
                 break
             # if the arduino asks to place the finger, set the message label
             if "place finger" in read:
@@ -1077,11 +1104,11 @@ class Verify_Access:
             self.parent = parent
             # create a new window
             self.window = ctk.CTkToplevel(self.parent.root)  # set focus to self.window
-            # self.window.attributes("-topmost", True)
+            self.window.attributes("-topmost", True)
 
             # on window close call self.failed
             self.window.protocol("WM_DELETE_WINDOW", self.failed)
-            # self.window.bind("<FocusOut>", self.failed)
+            self.window.bind("<FocusOut>", self.failed)
 
             # set the title
             self.window.title("Access Verification")
@@ -1095,7 +1122,7 @@ class Verify_Access:
             )
             # place the status label
             self.status_label.place(
-                relx=0.5, rely=0.5, relheight=0.1, relwidth=0.3, anchor=tk.CENTER
+                relx=0.5, rely=0.5, relheight=0.1, relwidth=1, anchor=tk.CENTER
             )
             # set the status label
             self.closed = False
@@ -1103,6 +1130,8 @@ class Verify_Access:
             # start the verification
             self.parent.arduino.start_reading()
             # start the verification
+
+            pyautogui.getWindowsWithTitle("Access Verification")[0].activate()
             if self.target_still_active():
 
                 t = threading.Thread(target=timeout, args=(10, self.failed))
