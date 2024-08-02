@@ -1,6 +1,3 @@
-from sql_metadata import parser
-
-
 class Query:
     def __init__(self, db, query: str) -> None:
         self.db = db
